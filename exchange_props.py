@@ -10,6 +10,19 @@ from starforge_mult_search.analysis.analyze_multiples_part2 import get_bound_sna
 from starforge_mult_search.analysis.figures.figure_preamble import *
 import cgs_const as cgs
 
+import seaborn as sns
+colors_hex = sns.color_palette("colorblind").as_hex()
+
+def get_spin_angle(tmp_spin1, tmp_spin2):
+    return np.dot(tmp_spin1, tmp_spin2) / np.linalg.norm(tmp_spin1) / np.linalg.norm(tmp_spin2)
+
+def spin_angle_from_lookup(spin_lookup, tmp_id1, tmp_id2, sel_bin_snap):
+    tmp_spin1 = spin_lookup[str(tmp_id1)][sel_bin_snap][1:]
+    tmp_spin2 = spin_lookup[str(tmp_id2)][sel_bin_snap][1:]
+    ##Spin vectors
+    spin_misalign = get_spin_angle(tmp_spin1, tmp_spin2)
+    return spin_misalign
+
 ##SEPARATE OUT PLOTTING CODE(!!)
 def ecdf(data):
     sorted_data = np.sort(data)
@@ -36,14 +49,17 @@ def get_ecdf_split(datasets, datasets_seeds, labels, **kwargs):
     # annotate_multiple_ecdf_err(x_vals, ecdf_mean, ecdf_std, labels, **kwargs)
     return x_vals, ecdf_mean, ecdf_std
 
-def plot_ecdf_plotly(x_vals, ys, errs=None, labels=None):
+def plot_ecdf_plotly(x_vals, ys, errs=None, labels=None, colors=None):
     traces = []
     for i, (x, y) in enumerate(zip(x_vals, ys)):
+        color=None
+        if colors is not None:
+            color = colors[i]
         trace = go.Scatter(
             x=x, y=y,
             mode='lines',
             name=labels[i] if labels else f"Series {i}",
-            line=dict(width=2)
+            line=dict(width=2, color=colors[i]),
         )
         traces.append(trace)
 
@@ -52,7 +68,8 @@ def plot_ecdf_plotly(x_vals, ys, errs=None, labels=None):
                 x=np.concatenate([x, x[::-1]]),
                 y=np.concatenate([y - errs[i], (y + errs[i])[::-1]]),
                 fill='toself',
-                fillcolor='rgba(0,100,80,0.2)',
+                fillcolor=color if color else 'rgba(0,100,80)',
+                opacity=0.2,
                 line=dict(color='rgba(255,255,255,0)'),
                 hoverinfo="skip",
                 showlegend=False
@@ -61,9 +78,7 @@ def plot_ecdf_plotly(x_vals, ys, errs=None, labels=None):
     return traces
 
 # def quad_plot(d_set1, extra_filt=None, type=0, unit=1, log=False):
-def quad_plot(d_set1, extra_filt=None, type=0, unit=1, log=False):
-    filt1 = (quasi_filter) & (final_bin_filter) & (bfb_filter)
-    filt2 = (quasi_filter) & (final_bin_filter) & (~bfb_filter)
+def quad_plot(d_set1, filt1, filt2, extra_filt=None, type=0, unit=1, log=False):
     if extra_filt is not None:
         filt1 = filt1 & extra_filt
         filt2 = filt2 & extra_filt
@@ -74,12 +89,37 @@ def quad_plot(d_set1, extra_filt=None, type=0, unit=1, log=False):
         d1 = np.log10(d1)
         d2 = np.log10(d2)
 
+    KS = ks_2samp(d1, d2).pvalue
+    labels = (f"Final, BFB\n{len(d1)}", f"Final, Other\n{len(d2)}" +"\n"+ f"KS: {KS:.2g}")
     x_vals, ys, y_errs = get_ecdf_split((d1, d2), (seeds_lookup[filt1], seeds_lookup[filt2]),
-                   (f"Final, BFB\n{len(d1)}", f"Final, Other\n{len(d2)}"),
+                   labels,
                    levels=(10, 80), y_offset=-0.1, x_offset=[0, -0.2], ha=['left', 'right'])
-    traces = plot_ecdf_plotly(x_vals, ys, errs=y_errs)
+    traces = plot_ecdf_plotly(x_vals, ys, errs=y_errs, labels=labels, colors=(colors_hex[0], colors_hex[1]))
     return traces
 
+def make_filter_dropdown(filter_id, label):
+    return html.Div([
+        html.Label(f"{label}:"),
+        dcc.Dropdown(
+            id=filter_id,
+            options=[
+                {'label': 'All', 'value': 'all'},
+                {'label': 'True', 'value': 'true'},
+                {'label': 'False', 'value': 'false'}
+            ],
+            value='all',
+            clearable=False,
+            style={'width': '100px'}
+        )
+    ])
+
+def apply_trinary_filter(condition, selection):
+    if selection == 'all':
+        return np.ones(len(condition)).astype(bool)
+    elif selection == 'true':
+        return condition
+    elif selection == 'false':
+        return ~condition
 
 ##NOT normal survival filter -- for now just look at things that survive as binaries.
 final_bin_filter = (my_data["final_bound_snaps_norm"]==1)
@@ -90,13 +130,15 @@ exchange_filter = ~pmult_before_bin
 
 end_states = []
 
-for row in my_data["bin_ids"]:
+for ii, row in enumerate(my_data["bin_ids"]):
     bin_list = list(row)
     sys1_info = lookup_dict[bin_list[0]]
     sys2_info = lookup_dict[bin_list[1]]
     b1, b2, snaps = get_bound_snaps(sys1_info, sys2_info)
+    sel_bin_snap = int(my_data["final_bound_snaps"][ii])
+    spin_ang = spin_angle_from_lookup(spin_lookup, bin_list[0], bin_list[1], sel_bin_snap)
 
-    end_states.append([b1[-1, LOOKUP_SMA], b1[-1, LOOKUP_ECC], min(b1[-1, LOOKUP_Q], b2[-1, LOOKUP_Q])])
+    end_states.append([b1[-1, LOOKUP_SMA], b1[-1, LOOKUP_ECC], min(b1[-1, LOOKUP_Q], b2[-1, LOOKUP_Q]), spin_ang])
 end_states = np.array(end_states)
 app = Dash()
 
@@ -105,18 +147,56 @@ app.layout = [
     html.Div(children=''),
     html.Hr(),
     html.Div(["Input min mass:", dcc.Input(value="0", id='min_mass', type="number", style={'height':'35px', 'font-size': 30})]),
-    dcc.Graph(figure={}, id='my-graph')
+    html.Div([
+        html.H4("Dataset A Filters"),
+        make_filter_dropdown('a_ex', 'Exchange Filter'),
+        make_filter_dropdown('a_bfb', 'BFB Filter'),
+    ], style={'display': 'inline-block', 'margin': '20px'}),
+
+    html.Div([
+        html.H4("Dataset B Filters"),
+        make_filter_dropdown('b_ex', 'Exchange Filter'),
+        make_filter_dropdown('b_bfb', 'BFB Filter'),
+    ], style={'display': 'inline-block', 'margin': '20px'}),
+    html.Div([
+        dcc.Graph(id='graph1'),
+        dcc.Graph(id='graph2'),
+        dcc.Graph(id='graph3'),
+        dcc.Graph(id='graph4'),
+    ], style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr', 'gap': '20px'}),
 ]
 
 @callback(
-    Output(component_id='my-graph', component_property='figure'),
-    Input(component_id='min_mass', component_property='value')
+    Output('graph1', 'figure'),
+    Output('graph2', 'figure'),
+    Output('graph3', 'figure'),
+    Output('graph4', 'figure'),
+    Input(component_id='min_mass', component_property='value'),
+    Input('a_ex', 'value'),
+    Input('a_bfb', 'value'),
+    Input('b_ex', 'value'),
+    Input('b_bfb', 'value')
 )
-def update_graph(min_mass):
-    # traces = quad_plot(end_states, extra_filt=(my_data["mfinal_primary"] > min_mass), type=0, unit=cgs.pc / cgs.au, log=True)
-    traces = quad_plot(end_states, extra_filt=(my_data["mfinal_primary"] > min_mass))
+def update_graph(min_mass, a_ex, a_bfb, b_ex, b_bfb):
+    extra_filt = (my_data["quasi_filter"]) & (my_data["mfinal_primary"] > float(min_mass))
+    filt_a1 = apply_trinary_filter(exchange_filter, a_ex)
+    filt_a2 = apply_trinary_filter(bfb_filter, a_bfb)
 
-    return go.Figure(data=traces)
+    filt_b1 = apply_trinary_filter(exchange_filter, b_ex)
+    filt_b2 = apply_trinary_filter(bfb_filter, b_bfb)
+
+    traces1 = quad_plot(end_states, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt), type=0, unit=cgs.pc / cgs.au, log=True)
+    traces2 = quad_plot(end_states, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt), type=1)
+    traces3 = quad_plot(end_states, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt), type=2)
+    traces4 = quad_plot(end_states, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt), type=3)
+
+    f1, f2, f3, f4 = go.Figure(data=traces1), go.Figure(data=traces2), go.Figure(data=traces3), go.Figure(data=traces4)
+    f1.update_layout(xaxis_title="log(a [au])", yaxis_title="CDF")
+    f2.update_layout(xaxis_title="e", yaxis_title="CDF")
+    f3.update_layout(xaxis_title="q", yaxis_title="CDF")
+    f4.update_layout(xaxis_title="$\phi_s$", yaxis_title="CDF")
+
+    return (f1, f2, f3, f4)
 
 # Run the app
 if __name__ == '__main__':
