@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 from scipy.stats import ks_2samp
 import matplotlib.patches as mpatches
@@ -219,4 +221,5 @@ def update_graph(min_mass, a_ex, a_bfb, b_ex, b_bfb, snap_from_form, halo_toggle
 
 # Run the app
 if __name__ == '__main__':
-    app.run()
+    port = int(os.environ.get("PORT", 10000))
+    app.run_server(host="0.0.0.0", port=port)
