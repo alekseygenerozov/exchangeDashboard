@@ -1,5 +1,4 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.stats import ks_2samp
 import matplotlib.patches as mpatches
 import pandas as pd
@@ -8,7 +7,9 @@ dummy_patch = mpatches.Patch(color='white', label='')
 from dash import Dash, html, dash_table, dcc, callback, Output, Input
 import plotly.graph_objs as go
 
-import cgs_const as cgs
+import astropy.constants as const
+pc=const.pc.cgs.value
+au=const.au.cgs.value
 
 import seaborn as sns
 colors_hex = sns.color_palette("colorblind").as_hex()
@@ -203,7 +204,7 @@ def update_graph(min_mass, a_ex, a_bfb, b_ex, b_bfb, snap_from_form, halo_toggle
     ##Add soft filter to traces1 and traces2
     ##by modifying the extra_filt(!) -- Need to get soft filter online first.
     ##extra_filt = extra_filt & (bprops["snap"] < bprops["soft"])
-    traces1 = quad_plot(bprops_filt, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt_mod), type="sma", unit=cgs.pc / cgs.au, log=True)
+    traces1 = quad_plot(bprops_filt, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt_mod), type="sma", unit=pc / au, log=True)
     traces2 = quad_plot(bprops_filt, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt_mod), type="e")
     traces3 = quad_plot(bprops_filt, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt), type=qtype)
     traces4 = quad_plot(bprops_filt, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt), type="spin_ang")
