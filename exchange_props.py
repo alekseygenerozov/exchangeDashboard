@@ -148,7 +148,7 @@ for ii, row in enumerate(my_data["bin_ids"]):
     #                b1[:, LOOKUP_SNAP] - b1[0,LOOKUP_SNAP], b1[:, LOOKUP_SNAP] / sim_end_snap, b1[:, LOOKUP_SNAP], np.ones(len(b1)) * ii, spin_ang,
     #                np.min((b1[:, LOOKUP_M] / b2[:, LOOKUP_M], b2[:, LOOKUP_M] / b1[:, LOOKUP_M]), axis=0)])
     bprops.append([b1[:, LOOKUP_SMA], b1[:, LOOKUP_ECC], np.min((b1[:, LOOKUP_Q], b2[:, LOOKUP_Q]), axis=0),
-                   b1[:, LOOKUP_SNAP] - b1[0,LOOKUP_SNAP], b1[:, LOOKUP_SNAP] / sim_end_snap, b1[:, LOOKUP_SNAP], np.ones(len(b1)) * ii, spin_ang])
+                   b1[:, LOOKUP_SNAP] - b1[0,LOOKUP_SNAP], b1[:, LOOKUP_SNAP] / sim_end_snap,  np.ones(len(b1)) * ii, b1[:, LOOKUP_SNAP], spin_ang])
 
 import pandas as pd
 bprops = pd.concat([pd.DataFrame(row).T for row in bprops], ignore_index=0)
@@ -181,7 +181,7 @@ seeds_lookup.index.name = "bin_idx"
 seeds_lookup.rename(columns={0:"seeds_lookup"}, inplace=True)
 
 
-bprops = pd.merge(bprops, qfilter, on="bin_idx", how="inner")
+bprops = pd.merge(bprops, qfilter, on="bin_idx", how="outer")
 bprops = pd.merge(bprops, efilter, on="bin_idx", how="outer")
 bprops = pd.merge(bprops, bfilter, on="bin_idx", how="outer")
 bprops = pd.merge(bprops, mfilter, on="bin_idx", how="outer")
