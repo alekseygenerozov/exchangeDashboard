@@ -134,19 +134,21 @@ for ii, row in enumerate(my_data["bin_ids"]):
     bin_list = list(row)
     sys1_info = lookup_dict[bin_list[0]]
     sys2_info = lookup_dict[bin_list[1]]
+    ##Snaps are all the snapshots the stars are in the same system -- not the snapshots they are in the same binary.
     b1, b2, snaps = get_bound_snaps(sys1_info, sys2_info)
     sel_bin_snap = int(my_data["final_bound_snaps"][ii])
-    spin_ang = [spin_angle_from_lookup(spin_lookup, bin_list[0], bin_list[1], ss) for ss in snaps.astype(int)]
+    spin_ang = [spin_angle_from_lookup(spin_lookup, bin_list[0], bin_list[1], ss) for ss in b1[:, LOOKUP_SNAP].astype(int)]
     sim_end_snap = lookup_dict[bin_list[0]][0, -1]
     ##Softening filter??
     ##get_first_soft_time--can be done separately...
 
     ##Also have toggle for halo masses(!)
-    # bprops.append([b1[:, LOOKUP_SMA], b1[:, LOOKUP_ECC], np.min((b1[:, LOOKUP_Q], b2[:, LOOKUP_Q]), axis=0), spin_ang])
     ## Mass ratio without halos -- controlled by button. Need new column or can be reconstructed from masses...
+    # bprops.append([b1[:, LOOKUP_SMA], b1[:, LOOKUP_ECC], np.min((b1[:, LOOKUP_Q], b2[:, LOOKUP_Q]), axis=0),
+    #                b1[:, LOOKUP_SNAP] - b1[0,LOOKUP_SNAP], b1[:, LOOKUP_SNAP] / sim_end_snap, b1[:, LOOKUP_SNAP], np.ones(len(b1)) * ii, spin_ang,
+    #                np.min((b1[:, LOOKUP_M] / b2[:, LOOKUP_M], b2[:, LOOKUP_M] / b1[:, LOOKUP_M]), axis=0)])
     bprops.append([b1[:, LOOKUP_SMA], b1[:, LOOKUP_ECC], np.min((b1[:, LOOKUP_Q], b2[:, LOOKUP_Q]), axis=0),
-                   b1[:, LOOKUP_SNAP] - b1[0,LOOKUP_SNAP], b1[:, LOOKUP_SNAP] / sim_end_snap, b1[:, LOOKUP_SNAP], np.ones(len(b1)) * ii, spin_ang,
-                   np.min((b1[:, LOOKUP_M] / b2[:, LOOKUP_M], b2[:, LOOKUP_M] / b1[:, LOOKUP_M]), axis=0)])
+                   b1[:, LOOKUP_SNAP] - b1[0,LOOKUP_SNAP], b1[:, LOOKUP_SNAP] / sim_end_snap, b1[:, LOOKUP_SNAP], np.ones(len(b1)) * ii, spin_ang])
 
 import pandas as pd
 bprops = pd.concat([pd.DataFrame(row).T for row in bprops], ignore_index=0)
@@ -179,7 +181,7 @@ seeds_lookup.index.name = "bin_idx"
 seeds_lookup.rename(columns={0:"seeds_lookup"}, inplace=True)
 
 
-bprops = pd.merge(bprops, qfilter, on="bin_idx", how="outer")
+bprops = pd.merge(bprops, qfilter, on="bin_idx", how="inner")
 bprops = pd.merge(bprops, efilter, on="bin_idx", how="outer")
 bprops = pd.merge(bprops, bfilter, on="bin_idx", how="outer")
 bprops = pd.merge(bprops, mfilter, on="bin_idx", how="outer")
