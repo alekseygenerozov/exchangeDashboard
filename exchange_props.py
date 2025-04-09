@@ -89,8 +89,7 @@ def quad_plot(d_set1, filt1, filt2, extra_filt=None, type=0, unit=1, log=False):
         d1 = np.log10(d1)
         d2 = np.log10(d2)
 
-    # KS = ks_2samp(d1, d2).pvalue
-    KS = 0
+    KS = ks_2samp(d1, d2).pvalue
     labels = (f"Final, BFB\n{len(d1)}", f"Final, Other\n{len(d2)}" +"\n"+ f"KS: {KS:.2g}")
     x_vals, ys, y_errs = get_ecdf_split((d1, d2), (d_set1.loc[filt1]["seeds_lookup"], d_set1.loc[filt2]["seeds_lookup"]),
                    labels,
@@ -137,16 +136,21 @@ for ii, row in enumerate(my_data["bin_ids"]):
     sys2_info = lookup_dict[bin_list[1]]
     b1, b2, snaps = get_bound_snaps(sys1_info, sys2_info)
     sel_bin_snap = int(my_data["final_bound_snaps"][ii])
-    spin_ang = spin_angle_from_lookup(spin_lookup, bin_list[0], bin_list[1], sel_bin_snap)
+    spin_ang = [spin_angle_from_lookup(spin_lookup, bin_list[0], bin_list[1], ss) for ss in snaps.astype(int)]
     sim_end_snap = lookup_dict[bin_list[0]][0, -1]
+    ##Softening filter??
+    ##get_first_soft_time--can be done separately...
 
     ##Also have toggle for halo masses(!)
     # bprops.append([b1[:, LOOKUP_SMA], b1[:, LOOKUP_ECC], np.min((b1[:, LOOKUP_Q], b2[:, LOOKUP_Q]), axis=0), spin_ang])
-    bprops.append([b1[:, LOOKUP_SMA], b1[:, LOOKUP_ECC], np.min((b1[:, LOOKUP_Q], b2[:, LOOKUP_Q]), axis=0), b1[:, LOOKUP_SNAP] - b1[0,LOOKUP_SNAP], b1[:, LOOKUP_SNAP] / sim_end_snap, np.ones(len(b1)) * ii])
+    ## Mass ratio without halos -- controlled by button. Need new column or can be reconstructed from masses...
+    bprops.append([b1[:, LOOKUP_SMA], b1[:, LOOKUP_ECC], np.min((b1[:, LOOKUP_Q], b2[:, LOOKUP_Q]), axis=0),
+                   b1[:, LOOKUP_SNAP] - b1[0,LOOKUP_SNAP], b1[:, LOOKUP_SNAP] / sim_end_snap, b1[:, LOOKUP_SNAP], np.ones(len(b1)) * ii, spin_ang,
+                   np.min((b1[:, LOOKUP_M] / b2[:, LOOKUP_M], b2[:, LOOKUP_M] / b1[:, LOOKUP_M]), axis=0)])
 
 import pandas as pd
 bprops = pd.concat([pd.DataFrame(row).T for row in bprops], ignore_index=0)
-bprops.rename(columns={0:"sma", 1:"e", 2:"q", 3:"delay", 4:"snap_norm", 5: "bin_idx"}, inplace=True)
+bprops.rename(columns={0:"sma", 1:"e", 2:"q", 3:"delay", 4:"snap_norm", 5: "bin_idx", 6:"snap", 7:"spin_ang", 8:"q_no_halo"}, inplace=True)
 bprops.set_index("bin_idx", inplace=True)
 
 qfilter = pd.DataFrame(quasi_filter)
@@ -165,6 +169,11 @@ mfilter = pd.DataFrame(my_data["mfinal_primary"])
 mfilter.index.name = "bin_idx"
 mfilter.rename(columns={0:"mfinal_primary"}, inplace=True)
 
+##TO DO: ADD THIS FILTER
+# soft_time = pd.DataFrame(my_data["soft_time"])
+# soft_time.index.name = "bin_idx"
+# soft_time.rename(columns={0:"soft_time"}, inplace=True)
+
 seeds_lookup = pd.DataFrame(seeds_lookup)
 seeds_lookup.index.name = "bin_idx"
 seeds_lookup.rename(columns={0:"seeds_lookup"}, inplace=True)
@@ -177,18 +186,29 @@ bprops = pd.merge(bprops, mfilter, on="bin_idx", how="outer")
 bprops = pd.merge(bprops, seeds_lookup, on="bin_idx", how="outer")
 
 # bprops = np.array(bprops)
-app = Dash()
-
+app = Dash(__name__, external_scripts=['https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.4/MathJax.js?config=TeX-MML-AM_CHTML'])
+# mathjax = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.4/MathJax.js?config=TeX-MML-AM_CHTML'
+# app.scripts.append_script({ 'external_url' : mathjax })
 
 # App layout
 app.layout = [
-    html.Div(children=''),
+    html.Div(children='\( \gamma \)'),
+    html.P(children='Delicious \(\pi\) is inline with my goals.'),
     html.Hr(),
     html.Div(["Input min mass:", dcc.Input(value="0", id='min_mass', type="number", style={'height':'35px', 'font-size': 30})]),
     html.Div([
         "Time to plot (from formation; final=plot properties of final binaries):",
         dcc.Input(value="final", id='snap_from_form', style={'height': '35px', 'font-size': 30})
     ]),
+    dcc.RadioItems(
+        id='halo_toggle',
+        options=[
+            {'label': 'Plot q with halo', 'value': True},
+            {'label': 'Plot q with no halo', 'value': False}
+        ],
+        value=True,  # default value to True (Column 1)
+        labelStyle={'display': 'inline-block'}
+    ),
     html.Div([
         html.H4("Dataset A Filters"),
         make_filter_dropdown('a_ex', 'Exchange Filter'),
@@ -218,9 +238,10 @@ app.layout = [
     Input('a_bfb', 'value'),
     Input('b_ex', 'value'),
     Input('b_bfb', 'value'),
-    Input('snap_from_form', 'value')
+    Input('snap_from_form', 'value'),
+    Input('halo_toggle', 'value')
 )
-def update_graph(min_mass, a_ex, a_bfb, b_ex, b_bfb, snap_from_form):
+def update_graph(min_mass, a_ex, a_bfb, b_ex, b_bfb, snap_from_form, halo_toggle):
     # extra_filt = (my_data["quasi_filter"]) & (my_data["mfinal_primary"] > float(min_mass))
     if snap_from_form=="final":
         bprops_filt = bprops.loc[bprops["snap_norm"]==1]
@@ -234,16 +255,23 @@ def update_graph(min_mass, a_ex, a_bfb, b_ex, b_bfb, snap_from_form):
     filt_b1 = apply_trinary_filter(bprops_filt["exchange_filter"], b_ex)
     filt_b2 = apply_trinary_filter(bprops_filt["bfb_filter"], b_bfb)
 
+    qtype = "q"
+    if not halo_toggle:
+        qtype = "q_no_halo"  # Use 'col2' if False
+
+    ##Add soft filter to traces1 and traces2
+    ##by modifying the extra_filt(!) -- Need to get soft filter online first.
+    ##extra_filt = extra_filt & (bprops["snap"] < bprops["soft"])
     traces1 = quad_plot(bprops_filt, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt), type="sma", unit=cgs.pc / cgs.au, log=True)
     traces2 = quad_plot(bprops_filt, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt), type="e")
-    traces3 = quad_plot(bprops_filt, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt), type="q")
-    traces4 = quad_plot(bprops_filt, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt), type="q")
+    traces3 = quad_plot(bprops_filt, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt), type=qtype)
+    traces4 = quad_plot(bprops_filt, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt), type="spin_ang")
 
     f1, f2, f3, f4 = go.Figure(data=traces1), go.Figure(data=traces2), go.Figure(data=traces3), go.Figure(data=traces4)
     f1.update_layout(xaxis_title="log(a [au])", yaxis_title="CDF")
     f2.update_layout(xaxis_title="e", yaxis_title="CDF")
     f3.update_layout(xaxis_title="q", yaxis_title="CDF")
-    f4.update_layout(xaxis_title="$\phi_s$", yaxis_title="CDF")
+    f4.update_layout(xaxis_title="cos(ϕₛ)", yaxis_title="CDF")
 
     return (f1, f2, f3, f4)
 
