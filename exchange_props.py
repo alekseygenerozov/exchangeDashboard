@@ -124,7 +124,7 @@ def apply_trinary_filter(condition, selection):
         return ~condition
 
 def get_soft_time(id1, id2):
-    delta = subtract_path(path_lookup[id1][:, pxcol:pzcol + 1], path_lookup[id2][:, pxcol:pzcol + 1])
+    delta = subtract_path(path_lookup[f"{id1}"][:, pxcol:pzcol + 1], path_lookup[f"{id2}"][:, pxcol:pzcol + 1])
     delta = np.sum(delta * delta, axis=1)**.5 * cgs.pc / cgs.au
     idx_soft = np.where(delta < 40)[0]
     if len(idx_soft) == 0:
@@ -199,7 +199,7 @@ bprops = pd.merge(bprops, qfilter, on="bin_idx", how="outer")
 bprops = pd.merge(bprops, efilter, on="bin_idx", how="outer")
 bprops = pd.merge(bprops, bfilter, on="bin_idx", how="outer")
 bprops = pd.merge(bprops, mfilter, on="bin_idx", how="outer")
-bprops = pd.merge(bprops, mfilter, on="bin_idx", how="outer")
+bprops = pd.merge(bprops, soft_time, on="bin_idx", how="outer")
 bprops = pd.merge(bprops, seeds_lookup, on="bin_idx", how="outer")
 
 # bprops = np.array(bprops)
@@ -222,6 +222,15 @@ app.layout = [
         options=[
             {'label': 'Plot q with halo', 'value': True},
             {'label': 'Plot q with no halo', 'value': False}
+        ],
+        value=True,  # default value to True (Column 1)
+        labelStyle={'display': 'inline-block'}
+    ),
+    dcc.RadioItems(
+        id='soft_toggle',
+        options=[
+            {'label': 'Remove bins affected by softening from top plots', 'value': True},
+            {'label': 'Keep bins affected by softening from top plots', 'value': False}
         ],
         value=True,  # default value to True (Column 1)
         labelStyle={'display': 'inline-block'}
@@ -256,9 +265,10 @@ app.layout = [
     Input('b_ex', 'value'),
     Input('b_bfb', 'value'),
     Input('snap_from_form', 'value'),
-    Input('halo_toggle', 'value')
+    Input('halo_toggle', 'value'),
+    Input('soft_toggle', 'value')
 )
-def update_graph(min_mass, a_ex, a_bfb, b_ex, b_bfb, snap_from_form, halo_toggle):
+def update_graph(min_mass, a_ex, a_bfb, b_ex, b_bfb, snap_from_form, halo_toggle, soft_toggle):
     # extra_filt = (my_data["quasi_filter"]) & (my_data["mfinal_primary"] > float(min_mass))
     if snap_from_form=="final":
         bprops_filt = bprops.loc[bprops["snap_norm"]==1]
@@ -275,12 +285,15 @@ def update_graph(min_mass, a_ex, a_bfb, b_ex, b_bfb, snap_from_form, halo_toggle
     qtype = "q"
     if not halo_toggle:
         qtype = "q_no_halo"  # Use 'col2' if False
+    extra_filt_mod = extra_filt & (bprops_filt["snap"] < bprops_filt["soft_time"])
+    if not soft_toggle:
+        extra_filt_mod = extra_filt
 
     ##Add soft filter to traces1 and traces2
     ##by modifying the extra_filt(!) -- Need to get soft filter online first.
     ##extra_filt = extra_filt & (bprops["snap"] < bprops["soft"])
-    traces1 = quad_plot(bprops_filt, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt & (bprops["snap"] < bprops["soft_time"])), type="sma", unit=cgs.pc / cgs.au, log=True)
-    traces2 = quad_plot(bprops_filt, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt & (bprops["snap"] < bprops["soft_time"])), type="e")
+    traces1 = quad_plot(bprops_filt, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt_mod), type="sma", unit=cgs.pc / cgs.au, log=True)
+    traces2 = quad_plot(bprops_filt, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt_mod), type="e")
     traces3 = quad_plot(bprops_filt, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt), type=qtype)
     traces4 = quad_plot(bprops_filt, filt_a1 & filt_a2, filt_b1 & filt_b2, extra_filt=(extra_filt), type="spin_ang")
 
